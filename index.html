@@ -3,44 +3,31 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Slides</title>
+  <title>PDF.js 全屏阅读（无浏览器插件）</title>
   <style>
     :root { --bg: #0b0c10; --fg: #e8e8e8; }
     * { box-sizing: border-box; }
-    html, body {
-      margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
-    }
-    #viewer {
-      position: fixed; inset: 0; overflow: auto; padding: 0; display: flex; flex-direction: column; align-items: center; gap: 16px;
-    }
-    .page {
-      background: #fff; box-shadow: 0 10px 30px rgba(0,0,0,.25); width: min(100vw, 1200px);
-    }
-    #overlay {
-      position: fixed; right: 12px; bottom: 12px; display: flex; gap: 8px; align-items: center;
-      background: rgba(0,0,0,.35); backdrop-filter: blur(6px); border-radius: 999px; padding: 8px 10px; user-select: none;
-    }
-    #overlay button {
-      border: none; background: rgba(255,255,255,.1); color: var(--fg); padding: 8px 12px; border-radius: 999px;
-      cursor: pointer; font-size: 14px;
-    }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); }
+    #viewer { position: fixed; inset: 0; overflow: auto; display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 0; }
+    .page { background: #fff; box-shadow: 0 10px 30px rgba(0,0,0,.25); width: min(100vw, 1200px); }
+    #overlay { position: fixed; right: 12px; bottom: 12px; display: flex; gap: 8px; align-items: center;
+      background: rgba(0,0,0,.35); backdrop-filter: blur(6px); border-radius: 999px; padding: 8px 10px; user-select: none; }
+    #overlay button { border: none; background: rgba(255,255,255,.1); color: var(--fg); padding: 8px 12px; border-radius: 999px; cursor: pointer; font-size: 14px; }
     #overlay button:hover { background: rgba(255,255,255,.2); }
     #filename { font-size: 12px; opacity: .8; margin-right: 6px; }
     #scale { min-width: 6ch; text-align: right; }
-    @media (max-width: 600px) {
-      .page { width: 100vw; border-radius: 0; box-shadow: none; }
-      #overlay { left: 50%; transform: translateX(-50%); right: auto; }
-    }
+    @media (max-width: 600px) { .page { width: 100vw; box-shadow: none; } #overlay { left: 50%; transform: translateX(-50%); right: auto; } }
+    #error { margin: 24px; padding: 16px; border-left: 4px solid #f5c2c7; background: #3b1f20; color: #f8d7da; border-radius: 12px; max-width: 800px; }
+    #tips { margin-top: 8px; font-size: 14px; opacity: .9; }
+    code { background: rgba(255,255,255,.1); padding: 2px 6px; border-radius: 6px; }
   </style>
 </head>
 <body>
-  <!-- 把 file.pdf 替换成你的 PDF 路径（相对或绝对均可） -->
-  <script>const PDF_URL = "Slides/Theoryday.pdf";</script>
+  <!-- ① 默认 PDF 路径在同目录：把 file.pdf 放在和本页面同一目录 -->
+  <script>const DEFAULT_PDF = "Slides/Theoryday.pdf";</script>
 
   <div id="viewer" aria-label="PDF Viewer"></div>
 
-  <!-- 右下角的小控件（不使用浏览器插件 UI，仅自定义按钮，可移除） -->
   <div id="overlay" role="toolbar" aria-label="Viewer Controls">
     <span id="filename"></span>
     <button id="fitWidth">适应宽度</button>
@@ -48,10 +35,41 @@
     <span id="scale">100%</span>
   </div>
 
-  <!-- 从 CDN 加载 PDF.js（无需浏览器内置 PDF 插件） -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" integrity="sha512-5jMeTRBq4yOmlOXbSg3uR5e70bEXq3D3n85o3MGkF8yDYNu2XzpJ3b0lVb5x8sJr5Q8kZwD0wKQy2P3n0b8G/g==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <!-- PDF.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script>
-    // 指定 worker（必要）
+    // 从 ?pdf= 查询参数读取文件名（可选），例如：index.html?pdf=docs/my.pdf
+    const url = new URL(location.href);
+    const PDF_URL = url.searchParams.get("pdf") || DEFAULT_PDF;
+
+    // 检测常见问题并给出提示
+    function showError(msg, detail) {
+      const viewer = document.getElementById("viewer");
+      const box = document.createElement("div");
+      box.id = "error";
+      box.innerHTML = "<strong>加载失败：</strong> " + msg +
+        (detail ? "<div style='margin-top:8px; white-space: pre-wrap;'>" + detail + "</div>" : "") +
+        `<div id="tips">
+          <div><strong>排查清单：</strong></div>
+          <ol>
+            <li>确认 <code>${PDF_URL}</code> 路径是否正确且可访问。</li>
+            <li>若使用 GitHub Pages，请将 <code>index.html</code> 和 PDF 放在同一仓库同一分支，使用同源路径（例如 <code>PDF_URL="file.pdf"</code>）。</li>
+            <li>不要用仓库里的 <code>blob</code> 页面链接；如需直链，请使用 <code>raw.githubusercontent.com</code>，且目标服务器必须允许 CORS。</li>
+            <li>避免混合内容：页面用 <code>https://</code> 时，PDF 链接也要用 <code>https://</code>。</li>
+            <li>本地预览时，务必通过 HTTP 服务（例如 VSCode Live Server），不要直接双击打开 <code>file://</code>。</li>
+          </ol>
+          <div>你也可以通过 URL 指定文件：<code>?pdf=路径/文件.pdf</code></div>
+        </div>`;
+      viewer.innerHTML = "";
+      viewer.appendChild(box);
+    }
+
+    // file:// 提示
+    if (location.protocol === "file:") {
+      showError("当前以 file:// 打开，浏览器默认禁止跨源读取文件。请通过本地服务器或部署到 GitHub Pages 再访问。");
+    }
+
+    // 指定 worker
     pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
     const viewer = document.getElementById("viewer");
@@ -60,40 +78,26 @@
     const fitWidthBtn = document.getElementById("fitWidth");
     const fitPageBtn = document.getElementById("fitPage");
 
-    // 状态
     let pdfDoc = null;
-    let renderState = {
-      pages: [], // { num, viewportScale, canvas, context, widthPx }
-      mode: "fitWidth", // fitWidth | fitPage | custom
-      customScale: 1.0
-    };
+    let renderState = { pages: [], mode: "fitWidth", customScale: 1.0 };
 
-    function baseName(path) {
-      try { return decodeURIComponent(path.split("/").pop().split("?")[0]); } catch(e) { return path; }
-    }
-
-    function updateScaleLabel(scale) {
-      scaleEl.textContent = Math.round(scale * 100) + "%";
-    }
+    function baseName(path) { try { return decodeURIComponent(path.split("/").pop().split("?")[0]); } catch(e) { return path; } }
+    function updateScaleLabel(scale) { scaleEl.textContent = Math.round(scale * 100) + "%"; }
 
     async function renderAllPages() {
       viewer.innerHTML = "";
       renderState.pages = [];
-
       for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
         const page = await pdfDoc.getPage(pageNum);
-        // 初始按视口 1.0，后续再缩放
         const initialViewport = page.getViewport({ scale: 1.0 });
-
         const containerWidth = Math.min(window.innerWidth, 1200);
-        let scale = containerWidth / initialViewport.width; // fitWidth
+        let scale = containerWidth / initialViewport.width;
         if (renderState.mode === "fitPage") {
-          const containerHeight = window.innerHeight - 16 - 16; // 视为上下间距
+          const containerHeight = window.innerHeight - 32;
           scale = Math.min(containerWidth / initialViewport.width, containerHeight / initialViewport.height);
         } else if (renderState.mode === "custom") {
           scale = renderState.customScale;
         }
-
         const viewport = page.getViewport({ scale });
         const canvas = document.createElement("canvas");
         canvas.className = "page";
@@ -102,69 +106,41 @@
         canvas.style.width = Math.floor(viewport.width) + "px";
         canvas.style.height = Math.floor(viewport.height) + "px";
         viewer.appendChild(canvas);
-
         const ctx = canvas.getContext("2d", { alpha: false });
         await page.render({ canvasContext: ctx, viewport }).promise;
-
-        renderState.pages.push({
-          num: pageNum,
-          viewportScale: scale,
-          canvas, ctx, widthPx: viewport.width
-        });
+        renderState.pages.push({ num: pageNum, viewportScale: scale });
       }
-
-      // 以第一页的缩放显示为准
       const currentScale = renderState.pages.length ? renderState.pages[0].viewportScale : 1;
       updateScaleLabel(currentScale);
     }
 
-    function reflow() {
-      if (!pdfDoc) return;
-      // 重新渲染（更可靠，避免缩放模糊）
-      renderAllPages();
-    }
+    function reflow() { if (!pdfDoc) return; renderAllPages(); }
 
-    // 按钮事件
-    fitWidthBtn.addEventListener("click", () => {
-      renderState.mode = "fitWidth";
-      reflow();
-    });
-    fitPageBtn.addEventListener("click", () => {
-      renderState.mode = "fitPage";
-      reflow();
-    });
-
-    // 滚轮 + Ctrl 调整自定义缩放
+    fitWidthBtn.addEventListener("click", () => { renderState.mode = "fitWidth"; reflow(); });
+    fitPageBtn.addEventListener("click", () => { renderState.mode = "fitPage"; reflow(); });
     window.addEventListener("wheel", (e) => {
       if (!pdfDoc) return;
       if (e.ctrlKey) {
         e.preventDefault();
-        // 基于当前比例调整
         const base = renderState.pages.length ? renderState.pages[0].viewportScale : 1;
         const delta = e.deltaY < 0 ? 0.1 : -0.1;
         const next = Math.max(0.2, Math.min(5, (renderState.mode === "custom" ? renderState.customScale : base) + delta));
-        renderState.mode = "custom";
-        renderState.customScale = next;
-        updateScaleLabel(next);
-        reflow();
+        renderState.mode = "custom"; renderState.customScale = next; updateScaleLabel(next); reflow();
       }
     }, { passive: false });
+    window.addEventListener("resize", () => { if (renderState.mode !== "custom") reflow(); });
 
-    // 窗口变化时自适应
-    window.addEventListener("resize", () => {
-      if (renderState.mode !== "custom") reflow();
-    });
-
-    // 加载 PDF
     (async function init() {
       filenameEl.textContent = baseName(PDF_URL);
-      const loadingTask = pdfjsLib.getDocument(PDF_URL);
-      pdfDoc = await loadingTask.promise;
-      await renderAllPages();
-    })().catch(err => {
-      viewer.innerHTML = "<div style='padding:24px;max-width:680px;color:#f8d7da;background:#3b1f20;border-left:4px solid #f5c2c7;margin:24px;border-radius:12px;'>加载 PDF 失败："
-        + String(err) + "<br>请确认 <code>PDF_URL</code> 路径正确，且允许跨域访问。</div>";
-    });
+      try {
+        const loadingTask = pdfjsLib.getDocument(PDF_URL);
+        pdfDoc = await loadingTask.promise;
+        await renderAllPages();
+      } catch (err) {
+        console.error(err);
+        showError("无法加载 PDF。", String(err));
+      }
+    })();
   </script>
 </body>
 </html>
