@@ -3,142 +3,151 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PDF.js 全屏阅读（无浏览器插件）</title>
+  <title>PDF Viewer</title>
   <style>
-    :root { --bg: #0b0c10; --fg: #e8e8e8; }
-    * { box-sizing: border-box; }
-    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); }
-    #viewer { position: fixed; inset: 0; overflow: auto; display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 0; }
-    .page { background: #fff; box-shadow: 0 10px 30px rgba(0,0,0,.25); width: min(100vw, 1200px); }
-    #overlay { position: fixed; right: 12px; bottom: 12px; display: flex; gap: 8px; align-items: center;
-      background: rgba(0,0,0,.35); backdrop-filter: blur(6px); border-radius: 999px; padding: 8px 10px; user-select: none; }
-    #overlay button { border: none; background: rgba(255,255,255,.1); color: var(--fg); padding: 8px 12px; border-radius: 999px; cursor: pointer; font-size: 14px; }
-    #overlay button:hover { background: rgba(255,255,255,.2); }
-    #filename { font-size: 12px; opacity: .8; margin-right: 6px; }
-    #scale { min-width: 6ch; text-align: right; }
-    @media (max-width: 600px) { .page { width: 100vw; box-shadow: none; } #overlay { left: 50%; transform: translateX(-50%); right: auto; } }
-    #error { margin: 24px; padding: 16px; border-left: 4px solid #f5c2c7; background: #3b1f20; color: #f8d7da; border-radius: 12px; max-width: 800px; }
-    #tips { margin-top: 8px; font-size: 14px; opacity: .9; }
-    code { background: rgba(255,255,255,.1); padding: 2px 6px; border-radius: 6px; }
+    html, body { margin: 0; height: 100%; background: #0b0c10; }
+    #stage {
+      position: fixed; inset: 0; display: grid; place-items: center;
+      overflow: hidden;
+    }
+    canvas { display: block; background: #fff; box-shadow: 0 8px 24px rgba(0,0,0,.35); }
+    /* Minimal icon-only controls */
+    #ctl {
+      position: fixed; right: 12px; bottom: 12px;
+      display: flex; gap: 8px; padding: 8px;
+      background: rgba(0,0,0,.35); backdrop-filter: blur(6px);
+      border-radius: 999px;
+    }
+    #ctl button {
+      width: 36px; height: 36px; border-radius: 50%;
+      border: none; background: rgba(255,255,255,.12); color: #eaeaea;
+      font-size: 18px; cursor: pointer; display: grid; place-items: center;
+    }
+    #ctl button:hover { background: rgba(255,255,255,.22); }
+    /* Hide any text labels; icons only */
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
   </style>
 </head>
 <body>
-  <!-- ① 默认 PDF 路径在同目录：把 file.pdf 放在和本页面同一目录 -->
-  <script>const DEFAULT_PDF = "Slides/Theoryday.pdf";</script>
+  <script>
+    // 默认：同目录 file.pdf。也可通过 ?pdf= 指定：index.html?pdf=docs/a.pdf
+    const url = new URL(location.href);
+    const PDF_URL = url.searchParams.get("pdf") || "Slides/Theoryday.pdf";
+  </script>
 
-  <div id="viewer" aria-label="PDF Viewer"></div>
+  <div id="stage"><canvas id="page"></canvas></div>
 
-  <div id="overlay" role="toolbar" aria-label="Viewer Controls">
-    <span id="filename"></span>
-    <button id="fitWidth">适应宽度</button>
-    <button id="fitPage">整页适应</button>
-    <span id="scale">100%</span>
+  <!-- Icon-only controls -->
+  <div id="ctl">
+    <button id="prev" title="上一页" aria-label="上一页">⟨<span class="sr-only">Prev</span></button>
+    <button id="next" title="下一页" aria-label="下一页">⟩<span class="sr-only">Next</span></button>
+    <button id="zoomOut" title="缩小" aria-label="缩小">−<span class="sr-only">Zoom out</span></button>
+    <button id="zoomIn" title="放大" aria-label="放大">＋<span class="sr-only">Zoom in</span></button>
+    <button id="fitW" title="适宽" aria-label="适宽">↔<span class="sr-only">Fit width</span></button>
+    <button id="fitP" title="整页" aria-label="整页">⤢<span class="sr-only">Fit page</span></button>
   </div>
 
-  <!-- PDF.js CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script>
-    // 从 ?pdf= 查询参数读取文件名（可选），例如：index.html?pdf=docs/my.pdf
-    const url = new URL(location.href);
-    const PDF_URL = url.searchParams.get("pdf") || DEFAULT_PDF;
-
-    // 检测常见问题并给出提示
-    function showError(msg, detail) {
-      const viewer = document.getElementById("viewer");
-      const box = document.createElement("div");
-      box.id = "error";
-      box.innerHTML = "<strong>加载失败：</strong> " + msg +
-        (detail ? "<div style='margin-top:8px; white-space: pre-wrap;'>" + detail + "</div>" : "") +
-        `<div id="tips">
-          <div><strong>排查清单：</strong></div>
-          <ol>
-            <li>确认 <code>${PDF_URL}</code> 路径是否正确且可访问。</li>
-            <li>若使用 GitHub Pages，请将 <code>index.html</code> 和 PDF 放在同一仓库同一分支，使用同源路径（例如 <code>PDF_URL="file.pdf"</code>）。</li>
-            <li>不要用仓库里的 <code>blob</code> 页面链接；如需直链，请使用 <code>raw.githubusercontent.com</code>，且目标服务器必须允许 CORS。</li>
-            <li>避免混合内容：页面用 <code>https://</code> 时，PDF 链接也要用 <code>https://</code>。</li>
-            <li>本地预览时，务必通过 HTTP 服务（例如 VSCode Live Server），不要直接双击打开 <code>file://</code>。</li>
-          </ol>
-          <div>你也可以通过 URL 指定文件：<code>?pdf=路径/文件.pdf</code></div>
-        </div>`;
-      viewer.innerHTML = "";
-      viewer.appendChild(box);
-    }
-
-    // file:// 提示
-    if (location.protocol === "file:") {
-      showError("当前以 file:// 打开，浏览器默认禁止跨源读取文件。请通过本地服务器或部署到 GitHub Pages 再访问。");
-    }
-
-    // 指定 worker
     pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    const canvas = document.getElementById("page");
+    const ctx = canvas.getContext("2d", { alpha: false });
+    const stage = document.getElementById("stage");
+    const btnPrev = document.getElementById("prev");
+    const btnNext = document.getElementById("next");
+    const btnIn = document.getElementById("zoomIn");
+    const btnOut = document.getElementById("zoomOut");
+    const btnFitW = document.getElementById("fitW");
+    const btnFitP = document.getElementById("fitP");
 
-    const viewer = document.getElementById("viewer");
-    const filenameEl = document.getElementById("filename");
-    const scaleEl = document.getElementById("scale");
-    const fitWidthBtn = document.getElementById("fitWidth");
-    const fitPageBtn = document.getElementById("fitPage");
+    let pdf = null;
+    let current = 1;
+    let scale = 1.0;         // CSS 逻辑缩放
+    let mode = "fitWidth";   // fitWidth | fitPage | custom
 
-    let pdfDoc = null;
-    let renderState = { pages: [], mode: "fitWidth", customScale: 1.0 };
+    function dpr() { return Math.min(3, window.devicePixelRatio || 1); } // 限制上限，防止超高 DPR 过慢
 
-    function baseName(path) { try { return decodeURIComponent(path.split("/").pop().split("?")[0]); } catch(e) { return path; } }
-    function updateScaleLabel(scale) { scaleEl.textContent = Math.round(scale * 100) + "%"; }
+    async function render() {
+      if (!pdf) return;
+      const page = await pdf.getPage(current);
 
-    async function renderAllPages() {
-      viewer.innerHTML = "";
-      renderState.pages = [];
-      for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
-        const page = await pdfDoc.getPage(pageNum);
-        const initialViewport = page.getViewport({ scale: 1.0 });
-        const containerWidth = Math.min(window.innerWidth, 1200);
-        let scale = containerWidth / initialViewport.width;
-        if (renderState.mode === "fitPage") {
-          const containerHeight = window.innerHeight - 32;
-          scale = Math.min(containerWidth / initialViewport.width, containerHeight / initialViewport.height);
-        } else if (renderState.mode === "custom") {
-          scale = renderState.customScale;
-        }
-        const viewport = page.getViewport({ scale });
-        const canvas = document.createElement("canvas");
-        canvas.className = "page";
-        canvas.width = Math.floor(viewport.width);
-        canvas.height = Math.floor(viewport.height);
-        canvas.style.width = Math.floor(viewport.width) + "px";
-        canvas.style.height = Math.floor(viewport.height) + "px";
-        viewer.appendChild(canvas);
-        const ctx = canvas.getContext("2d", { alpha: false });
-        await page.render({ canvasContext: ctx, viewport }).promise;
-        renderState.pages.push({ num: pageNum, viewportScale: scale });
-      }
-      const currentScale = renderState.pages.length ? renderState.pages[0].viewportScale : 1;
-      updateScaleLabel(currentScale);
+      // 先按 1 渲染视口，用于计算
+      const vp1 = page.getViewport({ scale: 1 });
+
+      // 根据模式计算 CSS 缩放
+      const padding = 24; // 视觉边距
+      const maxW = window.innerWidth - padding * 2;
+      const maxH = window.innerHeight - padding * 2;
+      if (mode === "fitWidth") {
+        scale = Math.min(maxW / vp1.width, 3);
+      } else if (mode === "fitPage") {
+        scale = Math.min(maxW / vp1.width, maxH / vp1.height);
+      } // custom 模式使用当前 scale
+
+      // 实际渲染 scale 叠加 DPR，确保清晰
+      const pixelScale = scale * dpr();
+      const vp = page.getViewport({ scale: pixelScale });
+
+      // 画布像素尺寸
+      canvas.width = Math.round(vp.width);
+      canvas.height = Math.round(vp.height);
+      // CSS 展示尺寸（不带 DPR）
+      canvas.style.width = Math.round(vp.width / dpr()) + "px";
+      canvas.style.height = Math.round(vp.height / dpr()) + "px";
+
+      // 清屏并渲染
+      ctx.setTransform(1,0,0,1,0,0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvasContext: ctx, viewport: vp }).promise;
     }
 
-    function reflow() { if (!pdfDoc) return; renderAllPages(); }
+    function clampPage(n) { return Math.max(1, Math.min(pdf.numPages, n)); }
 
-    fitWidthBtn.addEventListener("click", () => { renderState.mode = "fitWidth"; reflow(); });
-    fitPageBtn.addEventListener("click", () => { renderState.mode = "fitPage"; reflow(); });
-    window.addEventListener("wheel", (e) => {
-      if (!pdfDoc) return;
+    // 控件事件
+    btnPrev.addEventListener("click", () => { current = clampPage(current - 1); render(); });
+    btnNext.addEventListener("click", () => { current = clampPage(current + 1); render(); });
+    btnIn.addEventListener("click", () => { mode = "custom"; scale = Math.min(scale + 0.1, 5); render(); });
+    btnOut.addEventListener("click", () => { mode = "custom"; scale = Math.max(scale - 0.1, 0.2); render(); });
+    btnFitW.addEventListener("click", () => { mode = "fitWidth"; render(); });
+    btnFitP.addEventListener("click", () => { mode = "fitPage"; render(); });
+
+    // 键盘快捷键：←/→ 翻页；Ctrl+滚轮 缩放；F 宽度/整页切换
+    window.addEventListener("keydown", e => {
+      if (!pdf) return;
+      if (e.key === "ArrowLeft") { current = clampPage(current - 1); render(); }
+      else if (e.key === "ArrowRight") { current = clampPage(current + 1); render(); }
+      else if ((e.ctrlKey || e.metaKey) && (e.key === "=" || e.key === "+")) { mode = "custom"; scale = Math.min(scale + 0.1, 5); render(); }
+      else if ((e.ctrlKey || e.metaKey) && (e.key === "-")) { mode = "custom"; scale = Math.max(scale - 0.1, 0.2); render(); }
+      else if (e.key.toLowerCase() === "f") { mode = (mode === "fitWidth" ? "fitPage" : "fitWidth"); render(); }
+      else if (e.key === "PageDown" || e.key === " ") { current = clampPage(current + 1); render(); }
+      else if (e.key === "PageUp") { current = clampPage(current - 1); render(); }
+    });
+
+    // Ctrl+滚轮缩放（不显示任何提示文字）
+    window.addEventListener("wheel", e => {
+      if (!pdf) return;
       if (e.ctrlKey) {
         e.preventDefault();
-        const base = renderState.pages.length ? renderState.pages[0].viewportScale : 1;
-        const delta = e.deltaY < 0 ? 0.1 : -0.1;
-        const next = Math.max(0.2, Math.min(5, (renderState.mode === "custom" ? renderState.customScale : base) + delta));
-        renderState.mode = "custom"; renderState.customScale = next; updateScaleLabel(next); reflow();
+        mode = "custom";
+        scale = e.deltaY < 0 ? Math.min(scale + 0.1, 5) : Math.max(scale - 0.1, 0.2);
+        render();
       }
     }, { passive: false });
-    window.addEventListener("resize", () => { if (renderState.mode !== "custom") reflow(); });
 
+    // 尺寸变化：自适应（custom 模式不变）
+    window.addEventListener("resize", () => { if (mode !== "custom") render(); });
+
+    // 加载
     (async function init() {
-      filenameEl.textContent = baseName(PDF_URL);
       try {
-        const loadingTask = pdfjsLib.getDocument(PDF_URL);
-        pdfDoc = await loadingTask.promise;
-        await renderAllPages();
-      } catch (err) {
-        console.error(err);
-        showError("无法加载 PDF。", String(err));
+        const task = pdfjsLib.getDocument(PDF_URL);
+        pdf = await task.promise;
+        current = 1;
+        mode = "fitWidth";
+        await render();
+      } catch (e) {
+        // 仅打印控制台，不在页面显示任何文字
+        console.error("PDF 加载失败：", e);
       }
     })();
   </script>
