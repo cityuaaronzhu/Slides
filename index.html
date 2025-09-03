@@ -32,7 +32,7 @@
   <script>
     // 默认：同目录 file.pdf。也可通过 ?pdf= 指定：index.html?pdf=docs/a.pdf
     const url = new URL(location.href);
-    const PDF_URL = url.searchParams.get("pdf") || "Slides/Theoryday.pdf";
+    const PDF_URL = url.searchParams.get("pdf") || "welcome.pdf";
   </script>
 
   <div id="stage"><canvas id="page"></canvas></div>
